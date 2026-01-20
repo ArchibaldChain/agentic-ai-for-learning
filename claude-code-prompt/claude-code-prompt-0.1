@@ -1,0 +1,91 @@
+I want to refactor the existing agentic AI codebase with two main changes:
+
+## Change 1: Replace In-Memory Vector Store with Weaviate
+
+Currently we have a simple in-memory vector store in `rag/vector_store.py`. Replace it with **Weaviate** (I already have a Weaviate Cloud account).
+
+Requirements:
+1. Update `rag/vector_store.py` to use Weaviate client instead of in-memory storage
+2. Add `weaviate-client>=4.4.0` to dependencies in `pyproject.toml`
+3. Create a `VectorStore` class that wraps Weaviate with these methods:
+   - `create_collection(collection_name, description)` - Create a new collection
+   - `add_documents(collection_name, documents, embeddings, metadata, ids)` - Add documents
+   - `search(collection_name, query_embedding, k=5)` - Return top-k similar documents
+   - `delete_collection(collection_name)` - Delete a collection
+   - `collection_exists(collection_name)` - Check if collection exists
+   - `list_collections()` - List all collections
+   - `close()` - Close connection
+4. Support multiple collections (e.g., "Regulations", "Procedures")
+5. Connect to Weaviate Cloud using environment variables (WEAVIATE_URL and WEAVIATE_API_KEY)
+6. Add context manager support (with/as pattern)
+7. Update `.env.example` to include Weaviate credentials
+8. Update `rag/retriever.py` to use the new VectorStore
+9. Update `examples/simple_rag_example.py` to demonstrate:
+   - Creating a collection if it doesn't exist
+   - Adding documents on first run
+   - Querying from existing collection on subsequent runs
+   - Showing that data persists in Weaviate Cloud
+
+## Change 2: Create Abstract LLM Client Base Class
+
+Currently `llm/bedrock_client.py` is Bedrock-specific. Create an abstract base class for LLM clients to support multiple providers (Bedrock, Azure OpenAI, etc.) in the future.
+
+The agent code should remain unchanged - it just calls the LLM client interface.
+
+Requirements:
+
+1. Create new file `src/agentic_ai/llm/llm_client.py`:
+   - Abstract base class `LLMClient` with these abstract methods:
+     - `generate(messages, max_tokens, temperature, **kwargs)` - Generate completion, returns standardized dict
+     - `generate_with_tools(messages, tools, max_tokens, temperature, **kwargs)` - Generate with tool calling, returns standardized dict
+     - `get_embeddings(texts, **kwargs)` - Get embeddings, returns list of vectors
+     - `stream(messages, **kwargs)` - Stream responses (optional, can raise NotImplementedError)
+   - Helper method `format_messages(user_message, system_message)` - Format simple messages
+   - All methods should return standardized response formats across providers
+
+2. Refactor `src/agentic_ai/llm/bedrock_client.py`:
+   - Make `BedrockClient` inherit from `LLMClient`
+   - Implement all abstract methods with Bedrock-specific logic
+   - Move existing Bedrock functionality into the abstract method implementations
+   - Convert Bedrock responses to standardized format
+   - Keep existing embedding support with Titan
+
+3. Create placeholder `src/agentic_ai/llm/azure_client.py`:
+   - Stub class `AzureClient(LLMClient)` with all abstract methods raising NotImplementedError
+   - Add TODO comments documenting what needs implementation
+   - Don't actually implement - just show the structure
+
+4. Update `llm/__init__.py` to export all three classes
+
+5. No changes needed in agents or examples - they continue using BedrockClient
+
+## Standardized Response Format
+
+For `generate()`:
+- Return dict with keys: content, model, usage (dict with prompt_tokens, completion_tokens, total_tokens), finish_reason, raw_response
+
+For `generate_with_tools()`:
+- Return dict with keys: content, tool_calls (list of dicts with id, name, input), finish_reason, model, usage, raw_response
+
+For `get_embeddings()`:
+- Return list of embedding vectors (list of lists of floats)
+
+## Additional Updates
+
+1. Update `.gitignore` to include `.env` if not already there
+2. Update README.md to document:
+   - Weaviate setup and environment variables needed
+   - Multi-provider LLM client architecture
+   - How data persists in Weaviate Cloud across runs
+3. Add logging throughout for debugging
+
+## Goal
+
+After this refactor:
+- Vector data persists in Weaviate Cloud (no local database files)
+- Easy to swap LLM providers by implementing new LLMClient subclass
+- Agents don't need to change when switching providers
+- Clean separation: agents orchestrate, clients handle API calls
+- Well-documented and educational code
+
+Please refactor with these changes while maintaining all existing functionality.
